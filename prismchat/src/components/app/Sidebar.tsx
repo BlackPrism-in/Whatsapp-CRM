@@ -12,6 +12,8 @@ import {
   Bot,
   Target,
   ShoppingBag,
+  BellRing,
+  BarChart3,
   Share2,
   Settings,
 } from "lucide-react";
@@ -34,10 +36,12 @@ const nav: NavItem[] = [
   { href: "/app/broadcasts", label: "Broadcasts", icon: Megaphone },
   { href: "/app/automation", label: "Automation", icon: Workflow, soon: true },
   { href: "/app/ai", label: "AI Chatbots", icon: Bot, soon: true },
-  { href: "/app/leads", label: "Leads", icon: Target, soon: true },
-  { href: "/app/ecommerce", label: "Store", icon: ShoppingBag, soon: true },
+  { href: "/app/leads", label: "Leads", icon: Target },
+  { href: "/app/products", label: "Products", icon: ShoppingBag },
+  { href: "/app/reminders", label: "Reminders", icon: BellRing },
+  { href: "/app/reports", label: "Reports", icon: BarChart3 },
   { href: "/app/social", label: "Social", icon: Share2, soon: true },
-  { href: "/app/settings", label: "Settings", icon: Settings, soon: true },
+  { href: "/app/settings/team", label: "Team", icon: Settings },
 ];
 
 export function Sidebar() {

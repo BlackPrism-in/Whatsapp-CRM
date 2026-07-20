@@ -3,6 +3,20 @@ import { decrypt } from "@/lib/crypto";
 import { sendTemplateMessage } from "@/lib/whatsapp";
 
 /**
+ * Thrown for retryable send failures (rate limits, Meta outages, network).
+ * BullMQ catches this and retries the job with exponential backoff; the
+ * recipient row is left `pending` so nothing is lost.
+ */
+export class TransientSendError extends Error {
+  readonly code?: number;
+  constructor(message: string, code?: number) {
+    super(message);
+    this.name = "TransientSendError";
+    this.code = code;
+  }
+}
+
+/**
  * Send one campaign message to one contact and record the result. Called by the
  * broadcast worker (one job per recipient). Idempotent-ish: skips recipients
  * already past `pending`.
@@ -50,6 +64,12 @@ export async function sendCampaignMessage(
   });
 
   if (!res.ok) {
+    // Transient (rate limit / Meta 5xx / network): throw so BullMQ retries with
+    // backoff. The recipient stays `pending` so it is never silently dropped.
+    if (res.transient) {
+      throw new TransientSendError(res.error, res.code);
+    }
+    // Permanent (bad number, template rejected, bad token): stop here.
     return await markFailed(campaignId, recipient.id, res.error);
   }
 
@@ -65,6 +85,23 @@ export async function sendCampaignMessage(
     }),
   ]);
   return "sent";
+}
+
+/**
+ * Mark a recipient permanently failed. Called for non-retryable errors, and by
+ * the worker when a job exhausts all its retry attempts.
+ */
+export async function markRecipientFailedByContact(
+  campaignId: string,
+  contactId: string,
+  error: string,
+) {
+  const recipient = await prisma.campaignRecipient.findUnique({
+    where: { campaignId_contactId: { campaignId, contactId } },
+  });
+  // Only consume a recipient that is still pending — avoids double-counting.
+  if (!recipient || recipient.status !== "pending") return;
+  await markFailed(campaignId, recipient.id, error);
 }
 
 async function markFailed(campaignId: string, recipientId: string, error: string) {

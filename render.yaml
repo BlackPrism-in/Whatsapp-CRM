@@ -1,0 +1,132 @@
+# PrismChat — Render blueprint (Minimum Viable Production)
+#
+# Creates two services from one repo:
+#   1. prismchat-web    — the Next.js app
+#   2. prismchat-worker — the BullMQ background worker (broadcasts, imports)
+#
+# The worker MUST be a separate always-on service: Next.js route handlers
+# cannot host long-lived queue consumers.
+#
+# Setup:
+#   Render Dashboard → New → Blueprint → connect this repo → Apply.
+#   Then fill in the env vars marked `sync: false` in each service's dashboard.
+#
+# Secrets are intentionally NOT stored in this file.
+
+services:
+  # ---------------------------------------------------------------- web
+  - type: web
+    name: prismchat-web
+    runtime: node
+    plan: starter          # free tier has no worker support + cold starts
+    region: singapore      # closest to India
+    rootDir: prismchat
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    # Migrations run once per deploy, before traffic shifts over.
+    preDeployCommand: pnpm db:deploy
+    startCommand: pnpm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://prismchat.blackprism.in
+      - key: AUTH_URL
+        value: https://prismchat.blackprism.in
+
+      # --- Supabase: pooled (6543) for runtime, direct (5432) for migrations
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+
+      # --- Secrets: openssl rand -base64 32
+      # ENCRYPTION_KEY decrypts stored WhatsApp tokens — never rotate it.
+      - key: AUTH_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      # --- Redis Cloud (shared with the worker)
+      - key: REDIS_URL
+        sync: false
+
+      # --- Meta WhatsApp. META_APP_SECRET is REQUIRED in production:
+      #     the webhook fails closed and rejects all traffic without it.
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_VERSION
+        value: v21.0
+
+      # --- Resend (team invite emails)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM_ADDRESS
+        value: noreply@blackprism.in
+      - key: MAIL_FROM_NAME
+        value: PrismChat
+
+      # --- Cloudflare R2 (region must literally be "auto")
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+      # --- Pusher (realtime inbox)
+      - key: PUSHER_APP_ID
+        sync: false
+      - key: PUSHER_KEY
+        sync: false
+      - key: PUSHER_SECRET
+        sync: false
+      - key: PUSHER_CLUSTER
+        value: ap2
+      - key: NEXT_PUBLIC_PUSHER_KEY
+        sync: false
+      - key: NEXT_PUBLIC_PUSHER_CLUSTER
+        value: ap2
+
+  # ------------------------------------------------------------- worker
+  - type: worker
+    name: prismchat-worker
+    runtime: node
+    plan: starter
+    region: singapore
+    rootDir: prismchat
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm worker
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Worker needs DB, Redis, token decryption and Meta access to send.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: META_GRAPH_VERSION
+        value: v21.0
+      # Broadcast throttling. Meta caps Cloud API throughput and restricts
+      # numbers that burst. 20/sec ≈ 5,000 messages in ~4 min. Only raise once
+      # the number reaches a higher messaging tier with a green quality rating.
+      - key: BROADCAST_RATE_LIMIT
+        value: "20"
+      - key: BROADCAST_ATTEMPTS
+        value: "5"

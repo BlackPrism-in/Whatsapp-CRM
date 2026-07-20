@@ -9,6 +9,9 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Migrations must bypass the connection pooler. On Supabase, DATABASE_URL
+    // is the pgBouncer (6543) URL which cannot run DDL — DIRECT_URL (5432) is
+    // used when present, falling back to DATABASE_URL for local dev.
+    url: process.env["DIRECT_URL"] || process.env["DATABASE_URL"],
   },
 });

@@ -2,12 +2,30 @@ import "dotenv/config";
 import { Worker, type Processor } from "bullmq";
 import { redis } from "../lib/redis";
 import { QUEUE_NAMES, type QueueName } from "../lib/queue";
-import { sendCampaignMessage, finalizeCampaignIfDone } from "../modules/broadcasting/send";
+import {
+  sendCampaignMessage,
+  finalizeCampaignIfDone,
+  markRecipientFailedByContact,
+} from "../modules/broadcasting/send";
 
 /**
  * PrismChat background worker process. Run separately from the Next.js server
  * (`pnpm worker`) — Next route handlers can't host long-lived BullMQ workers.
  */
+
+/**
+ * Broadcast throttling.
+ *
+ * Meta's Cloud API caps throughput (default ~80 messages/sec, lower for new
+ * numbers) and will return 130429 / HTTP 429 when exceeded. Sustained bursts
+ * also hurt the number's quality rating, which can get it restricted.
+ *
+ * We pace sends with a BullMQ limiter so a 5,000-contact broadcast drains
+ * steadily instead of stampeding. Default 20/sec ≈ 5,000 messages in ~4 min.
+ * Raise BROADCAST_RATE_LIMIT once the number reaches a higher messaging tier.
+ */
+const BROADCAST_RATE_LIMIT = Number(process.env.BROADCAST_RATE_LIMIT ?? 20);
+const BROADCAST_ATTEMPTS = Number(process.env.BROADCAST_ATTEMPTS ?? 5);
 
 const broadcastProcessor: Processor = async (job) => {
   const { campaignId, contactId } = job.data as { campaignId: string; contactId: string };
@@ -26,23 +44,52 @@ const processors: Partial<Record<QueueName, Processor>> = {
 };
 
 const workers = Object.values(QUEUE_NAMES).map((name: QueueName) => {
+  const isBroadcast = name === QUEUE_NAMES.broadcast;
+
   const worker = new Worker(name, processors[name] ?? placeholder, {
     connection: redis,
-    concurrency: name === QUEUE_NAMES.broadcast ? 10 : 5,
+    concurrency: isBroadcast ? 5 : 5,
+    // Global pacing across all jobs on this queue.
+    ...(isBroadcast
+      ? { limiter: { max: BROADCAST_RATE_LIMIT, duration: 1000 } }
+      : {}),
   });
+
   worker.on("completed", (job, ret) => {
-    if (name === QUEUE_NAMES.broadcast) {
-      console.log(`[worker:${name}] ${job.id} →`, ret?.result);
+    if (isBroadcast) console.log(`[worker:${name}] ${job.id} →`, ret?.result);
+  });
+
+  worker.on("failed", async (job, err) => {
+    console.error(`[worker:${name}] job ${job?.id} failed:`, err.message);
+
+    // Once a broadcast job exhausts every retry, consume the recipient so the
+    // campaign can finalize instead of hanging with `pending` rows forever.
+    if (isBroadcast && job && job.attemptsMade >= (job.opts.attempts ?? BROADCAST_ATTEMPTS)) {
+      const { campaignId, contactId } = job.data as {
+        campaignId: string;
+        contactId: string;
+      };
+      try {
+        await markRecipientFailedByContact(
+          campaignId,
+          contactId,
+          `Gave up after ${job.attemptsMade} attempts: ${err.message}`,
+        );
+        await finalizeCampaignIfDone(campaignId);
+      } catch (e) {
+        console.error(`[worker:${name}] could not finalize recipient:`, e);
+      }
     }
   });
-  worker.on("failed", (job, err) => {
-    console.error(`[worker:${name}] job ${job?.id} failed:`, err.message);
-  });
+
   return worker;
 });
 
 console.log(
   `PrismChat worker started. Listening on: ${Object.values(QUEUE_NAMES).join(", ")}`,
+);
+console.log(
+  `Broadcast throttle: ${BROADCAST_RATE_LIMIT} msg/sec, ${BROADCAST_ATTEMPTS} attempts w/ exponential backoff`,
 );
 
 async function shutdown() {

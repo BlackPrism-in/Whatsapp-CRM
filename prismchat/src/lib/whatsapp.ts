@@ -6,7 +6,36 @@ const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
 export type GraphResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; status?: number };
+  | {
+      ok: false;
+      error: string;
+      status?: number;
+      /** Meta error code, e.g. 130429 (rate limit hit). */
+      code?: number;
+      /** True when retrying later could plausibly succeed. */
+      transient?: boolean;
+    };
+
+/**
+ * Meta error codes that are worth retrying. Anything not listed is treated as
+ * permanent (bad number, template rejected, invalid token) so we don't burn
+ * retries on failures that will never succeed.
+ */
+const TRANSIENT_CODES = new Set([
+  4, // Application request limit reached
+  80007, // Rate limit issues
+  130429, // Cloud API message throughput limit hit
+  131056, // (Pair) rate limit — too many messages to the same recipient
+  133016, // Temporary account restriction
+  1, // API Unknown (usually transient)
+  2, // API Service — temporary outage
+]);
+
+function classifyError(status: number, code?: number) {
+  // 429 = throttled, 5xx = Meta-side problem. Both are worth retrying.
+  if (status === 429 || status >= 500) return true;
+  return code !== undefined && TRANSIENT_CODES.has(code);
+}
 
 async function graph<T>(
   path: string,
@@ -26,12 +55,23 @@ async function graph<T>(
     });
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) {
-      const err = json.error as { message?: string } | undefined;
-      return { ok: false, error: err?.message ?? `Graph error ${res.status}`, status: res.status };
+      const err = json.error as { message?: string; code?: number } | undefined;
+      return {
+        ok: false,
+        error: err?.message ?? `Graph error ${res.status}`,
+        status: res.status,
+        code: err?.code,
+        transient: classifyError(res.status, err?.code),
+      };
     }
     return { ok: true, data: json as T };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Network error" };
+    // Network/DNS/timeout — always worth a retry.
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Network error",
+      transient: true,
+    };
   }
 }
 

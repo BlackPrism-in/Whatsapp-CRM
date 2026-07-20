@@ -218,6 +218,15 @@ enum WebhookDeliveryStatus {
   failed
 }
 
+enum ReminderType {
+  follow_up
+  birthday
+  class_reminder
+  order
+  renewal
+  custom
+}
+
 enum SupportTicketStatus {
   open
   pending
@@ -288,6 +297,8 @@ model Workspace {
   smtpConfig        WorkspaceSmtpConfig?
   smsProviders      SmsProviderConfig[]
   usageMeters       UsageMeter[]
+  products          Product[]
+  reminders         Reminder[]
 
   @@index([clientId])
   @@map("workspaces")
@@ -597,6 +608,7 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   lead          Lead?              @relation(fields: [leadId], references: [id])
   orders        EcommerceOrder[]
+  reminders     Reminder[]
 
   @@unique([workspaceId, phoneE164])
   @@index([workspaceId])
@@ -1587,6 +1599,57 @@ model Template {
   updatedAt DateTime @updatedAt
 
   @@map("templates")
+}
+
+// ============================================================================
+// PRODUCT CATALOG (native — distinct from synced Ecommerce products)
+// ============================================================================
+
+model Product {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?  @db.Text
+  sku         String?
+  price       Decimal  @default(0) @db.Decimal(12, 2)
+  currency    String   @default("INR")
+  category    String?
+  imageUrl    String?
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, category])
+  @@map("products")
+}
+
+// ============================================================================
+// REMINDERS
+// ============================================================================
+
+model Reminder {
+  id          String       @id @default(cuid())
+  workspaceId String
+  contactId   String?
+  assignedTo  String?
+  type        ReminderType @default(follow_up)
+  title       String
+  notes       String?      @db.Text
+  dueAt       DateTime
+  completedAt DateTime?
+  notifiedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, dueAt])
+  @@index([contactId])
+  @@map("reminders")
 }
 
 model Locale {

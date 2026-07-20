@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireWorkspace } from "@/lib/session";
 import { getContact } from "@/modules/contacts/queries";
+import { getContactIntelligence } from "@/modules/contacts/intelligence";
+import { listContactNotes } from "@/modules/contacts/notes";
+import { NotesPanel } from "@/components/contacts/NotesPanel";
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -21,6 +24,11 @@ export default async function ContactShowPage({
   const { workspace } = await requireWorkspace();
   const contact = await getContact(workspace.id, id);
   if (!contact) notFound();
+
+  const [intel, notes] = await Promise.all([
+    getContactIntelligence(workspace.id, id),
+    listContactNotes(workspace.id, id),
+  ]);
 
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
   const optIns = [
@@ -55,6 +63,51 @@ export default async function ContactShowPage({
         <Row label="Opt-ins" value={optIns || "None"} />
         <Row label="Created" value={contact.createdAt.toLocaleDateString()} />
       </div>
+
+      <div className="rounded-xl border border-border bg-surface p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-medium">Customer intelligence</h2>
+          <span className="rounded-full bg-brand-100 px-2.5 py-1 text-xs font-medium text-brand-800">
+            {intel.engagementLabel} · {intel.engagementScore}/100
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-surface-subtle">
+          <div
+            className="h-full rounded-full bg-brand-600 transition-all"
+            style={{ width: `${intel.engagementScore}%` }}
+          />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {[
+            { label: "Messages in", value: intel.messagesIn },
+            { label: "Messages out", value: intel.messagesOut },
+            { label: "Campaigns", value: intel.campaignsReceived },
+            { label: "Replied", value: intel.campaignsReplied },
+            { label: "Orders", value: intel.orderCount },
+            {
+              label: "Lifetime value",
+              value: `₹${intel.lifetimeValue.toLocaleString("en-IN")}`,
+            },
+            {
+              label: "Avg order",
+              value: `₹${Math.round(intel.avgOrderValue).toLocaleString("en-IN")}`,
+            },
+            {
+              label: "Last inbound",
+              value: intel.lastInboundAt
+                ? new Date(intel.lastInboundAt).toLocaleDateString()
+                : "—",
+            },
+          ].map((s) => (
+            <div key={s.label}>
+              <div className="text-xs text-muted">{s.label}</div>
+              <div className="mt-0.5 text-lg font-semibold text-brand-700">{s.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <NotesPanel contactId={id} notes={notes} />
 
       {contact.tags.length > 0 && (
         <div className="rounded-xl border border-border bg-surface p-5">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { processWebhook } from "@/modules/inbox/inbound";
+import { verifyMetaSignature } from "@/lib/webhook-security";
 
 /**
  * Meta webhook verification handshake. Meta calls GET with hub.challenge; we
@@ -35,9 +36,19 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Read the RAW body — the HMAC is computed over the exact bytes Meta sent,
+  // so parsing and re-serialising would break verification.
+  const rawBody = await req.text();
+
+  const check = verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"));
+  if (!check.ok) {
+    console.warn(`[whatsapp webhook] rejected: ${check.reason}`);
+    return new NextResponse("Invalid signature", { status: 401 });
+  }
+
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return new NextResponse("Bad Request", { status: 400 });
   }

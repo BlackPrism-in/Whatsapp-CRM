@@ -98,12 +98,23 @@ export async function launchCampaign(id: string): Promise<CampaignState> {
   });
 
   // Enqueue one job per recipient. BullMQ dedupes by jobId to survive retries.
+  // Actual send pacing is enforced by the worker's rate limiter (see
+  // src/workers/index.ts) — Meta throttles bulk sends and will restrict a
+  // number that bursts. Attempts/backoff cover transient rate limits.
   const queue = getQueue(QUEUE_NAMES.broadcast);
+  const attempts = Number(process.env.BROADCAST_ATTEMPTS ?? 5);
   await queue.addBulk(
     contacts.map((c) => ({
       name: "send",
       data: { campaignId: campaign.id, contactId: c.id },
-      opts: { jobId: `bcast:${campaign.id}:${c.id}`, attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+      opts: {
+        jobId: `bcast:${campaign.id}:${c.id}`,
+        attempts,
+        // 10s, 20s, 40s, 80s — well clear of Meta's per-second windows.
+        backoff: { type: "exponential", delay: 10_000 },
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+      },
     })),
   );
 

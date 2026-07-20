@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { loginAction } from "@/app/(auth)/actions";
 
@@ -28,10 +27,8 @@ export default async function LoginPage({
         ]}
       />
       <p className="mt-5 text-center text-sm text-muted">
-        Don&apos;t have an account?{" "}
-        <Link href="/register" className="font-medium text-brand-600">
-          Sign up
-        </Link>
+        PrismChat is invite-only. Ask your workspace admin to send you an
+        invitation.
       </p>
     </div>
   );

@@ -38,14 +38,11 @@ export default function Home() {
           <span className="text-lg font-semibold">PrismChat</span>
         </div>
         <nav className="flex items-center gap-3 text-sm">
-          <Link href="/login" className="text-muted hover:text-foreground">
-            Sign in
-          </Link>
           <Link
-            href="/register"
+            href="/login"
             className="rounded-lg bg-brand-600 px-4 py-2 font-medium text-white transition hover:bg-brand-700"
           >
-            Get started
+            Sign in
           </Link>
         </nav>
       </header>
@@ -63,16 +60,10 @@ export default function Home() {
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <Link
-            href="/register"
+            href="/login"
             className="rounded-lg bg-brand-600 px-6 py-3 font-medium text-white transition hover:bg-brand-700"
           >
-            Start free
-          </Link>
-          <Link
-            href="/login"
-            className="rounded-lg border border-border bg-surface px-6 py-3 font-medium transition hover:bg-surface-subtle"
-          >
-            Sign in
+            Sign in to your workspace
           </Link>
         </div>
       </section>
