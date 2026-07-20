@@ -40,8 +40,7 @@
 
   --color-danger: #f04e2e;
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-space-grotesk);
 }
 
 :root {
@@ -53,14 +52,16 @@
   --border: #e0e8cf;
 }
 
+/* Dark mode mirrors WhatsMine: neutral grays for surfaces (not dark green),
+   with brand green kept only as the accent. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #121d10;
-    --surface: #1a2616;
-    --surface-subtle: #22301c;
-    --foreground: #eef4dd;
-    --muted: #a3b394;
-    --border: #2f4a25;
+    --background: #0a0a0a; /* neutral-950 — app shell / sidebar base */
+    --surface: #171717; /* neutral-900 — cards, topbar */
+    --surface-subtle: #262626; /* neutral-800 */
+    --foreground: #f5f5f5; /* neutral-100 */
+    --muted: #a3a3a3; /* neutral-400 */
+    --border: #262626; /* neutral-800 */
   }
 }
 
