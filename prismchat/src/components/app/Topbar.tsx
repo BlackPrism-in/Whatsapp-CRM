@@ -1,4 +1,5 @@
 import { logoutAction } from "@/app/app/actions";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function Topbar({
   workspaceName,
@@ -19,6 +20,7 @@ export function Topbar({
           <div className="font-medium">{userName}</div>
           <div className="text-xs capitalize text-muted">{role}</div>
         </div>
+        <ThemeToggle />
         <form action={logoutAction}>
           <button
             type="submit"

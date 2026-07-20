@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Zap, TrendingUp, Bot } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const FEATURES = [
   { icon: Zap, text: "Automate follow-ups and reclaim 10+ hours a week" },
@@ -80,7 +81,10 @@ export default function AuthLayout({
       </div>
 
       {/* Right form pane */}
-      <div className="flex flex-1 flex-col items-center justify-center bg-background px-4 py-10">
+      <div className="relative flex flex-1 flex-col items-center justify-center bg-background px-4 py-10">
+        <div className="absolute right-4 top-4">
+          <ThemeToggle />
+        </div>
         <Link href="/" className="mb-6 flex items-center gap-2 lg:hidden">
           <span className="grid size-8 place-items-center rounded-xl bg-brand-600 font-bold text-white">
             P
