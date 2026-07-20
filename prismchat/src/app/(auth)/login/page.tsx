@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { loginAction } from "@/app/(auth)/actions";
 
@@ -26,7 +27,12 @@ export default async function LoginPage({
           },
         ]}
       />
-      <p className="mt-5 text-center text-sm text-muted">
+      <p className="mt-3 text-center text-sm">
+        <Link href="/forgot-password" className="text-brand-600 hover:underline">
+          Forgot your password?
+        </Link>
+      </p>
+      <p className="mt-4 text-center text-sm text-muted">
         PrismChat is invite-only. Ask your workspace admin to send you an
         invitation.
       </p>

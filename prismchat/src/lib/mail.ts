@@ -40,6 +40,34 @@ export async function sendMail(opts: {
   }
 }
 
+/** Branded password-reset email with a one-time link. */
+export function resetPasswordEmail(opts: { url: string }) {
+  const { url } = opts;
+  return {
+    subject: "Reset your PrismChat password",
+    text: `We received a request to reset your PrismChat password.\n\nReset it here (expires in 1 hour):\n${url}\n\nIf you didn't request this, you can safely ignore this email.`,
+    html: `
+      <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:24px">
+          <div style="width:32px;height:32px;border-radius:8px;background:#467235;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold">P</div>
+          <strong style="font-size:18px">PrismChat</strong>
+        </div>
+        <h1 style="font-size:20px;margin:0 0 8px">Reset your password</h1>
+        <p style="color:#5f6b52;line-height:1.5">
+          We received a request to reset your PrismChat password. Click below to
+          choose a new one.
+        </p>
+        <p style="margin:24px 0">
+          <a href="${url}" style="background:#467235;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:500">
+            Reset password
+          </a>
+        </p>
+        <p style="color:#5f6b52;font-size:13px">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.</p>
+      </div>
+    `,
+  };
+}
+
 /** Branded invite email with a one-time link to set a password. */
 export function inviteEmail(opts: {
   inviterName: string;

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
+import { rateLimit, rateLimitReset, getClientIp } from "@/lib/rate-limit";
 
 // signIn() with redirectTo throws a Next redirect internally; it must be
 // rethrown so navigation happens. Detect it by its digest (stable public shape).
@@ -35,16 +36,31 @@ export async function loginAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
+  const email = parsed.data.email.toLowerCase().trim();
   const callbackUrl = String(formData.get("callbackUrl") || "/app/dashboard");
+
+  // Throttle brute-force: max 8 attempts per 10 min, keyed on IP + email.
+  const ip = await getClientIp();
+  const limit = await rateLimit("login", `${ip}:${email}`, { max: 8, windowSec: 600 });
+  if (!limit.allowed) {
+    const mins = Math.ceil(limit.retryAfterSec / 60);
+    return {
+      error: `Too many attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`,
+    };
+  }
 
   try {
     await signIn("credentials", {
-      email: parsed.data.email.toLowerCase().trim(),
+      email,
       password: parsed.data.password,
       redirectTo: callbackUrl,
     });
   } catch (error) {
-    if (isRedirectError(error)) throw error;
+    // A successful sign-in throws the redirect — clear the counter on success.
+    if (isRedirectError(error)) {
+      await rateLimitReset("login", `${ip}:${email}`);
+      throw error;
+    }
     if (error instanceof AuthError) {
       return { error: "Invalid email or password" };
     }
