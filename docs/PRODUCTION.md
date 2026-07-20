@@ -2,9 +2,15 @@
 
 Your decisions are locked in. This is the ordered list of what **you** need to do.
 
-**Stack:** Render (web + worker) · Supabase Pro (Postgres) · Redis Cloud · Cloudflare R2 · Pusher · Resend
+**Stack:** Render (web) · Supabase · Redis Cloud · Cloudflare R2 · Pusher · Resend
 **Domain:** `prismchat.blackprism.in`
-**Cost:** ~$32/mo (~₹2,700) infrastructure + Meta per-message charges
+
+**Currently on the FREE tier for testing (₹0).** Two limits you must know:
+- ⚠️ **Broadcasts will NOT send** — Render Background Workers aren't available on free, and the worker is what actually delivers messages. Everything else works.
+- ⚠️ **No SSH/Shell** on free, and no `preDeployCommand` — so migrations and admin bootstrap run from your laptop (steps C4/C6).
+- Free web spins down when idle → ~50s cold start on first hit.
+
+**To go live for the client:** set web `plan: starter` + uncomment the worker in `render.yaml` → **$14/mo**, plus Supabase Pro $25 when you need backups/no-pausing.
 
 ---
 
@@ -42,27 +48,49 @@ Meta verification is the long pole (2–10 business days) — **start it today**
       ```
       🔴 **Never lose or rotate `ENCRYPTION_KEY`** — it decrypts stored WhatsApp tokens. Changing it makes every connected WhatsApp account unreadable. Back it up somewhere safe.
 
-### Phase C — Deploy
+### Phase C — Deploy (free tier)
 
-- [ ] **C1.** Push the repo to GitHub
-- [ ] **C2.** Render → **New → Blueprint** → select the repo → Apply
-      *(uses `render.yaml` at the repo root — creates `prismchat-web` and `prismchat-worker`)*
-- [ ] **C3.** Fill the `sync: false` env vars in **BOTH** services.
-      The worker needs: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `ENCRYPTION_KEY`
-      ⚠️ Missing worker env vars = broadcasts silently never send
-- [ ] **C4.** First deploy runs migrations automatically (`preDeployCommand`)
+- [ ] **C1.** Push to GitHub
+      ```bash
+      git add -A && git commit -m "PrismChat deploy config" && git push origin main
+      ```
+      Safe: `.env`, `.env.production`, `src/generated` are gitignored.
+
+- [ ] **C2.** Render → **New → Blueprint** → select the repo → **Apply**
+      Creates `prismchat-web` only (worker is commented out). **No card required.**
+
+- [ ] **C3.** Fill the `sync: false` env vars on `prismchat-web`.
+      Copy from `prismchat/.env.production` (values tagged `[W]`).
+      Leave `META_APP_ID` / `META_APP_SECRET` blank until Phase D.
+
+- [ ] **C4.** **Run migrations from your laptop** (free tier has no pre-deploy):
+      ```bash
+      cd prismchat
+      DIRECT_URL="<supabase 5432 url>" pnpm db:deploy
+      ```
+      Creates all tables in Supabase. Verify: Supabase → Table Editor shows `contacts`, `campaigns`, etc.
+
 - [ ] **C5.** DNS on `blackprism.in`:
       ```
       CNAME   prismchat   prismchat-web.onrender.com
       ```
-      Then Render → Settings → Custom Domain → add `prismchat.blackprism.in` (TLS is automatic)
-- [ ] **C6.** Create your admin account (Render → prismchat-web → Shell):
+      Render → prismchat-web → Settings → Custom Domain → add `prismchat.blackprism.in`.
+
+- [ ] **C6.** **Create the admin from your laptop** (no Shell on free):
       ```bash
-      ADMIN_EMAIL=sandeep@blackprism.in ADMIN_PASSWORD='strong-password' \
+      cd prismchat
+      DATABASE_URL="<supabase 6543 url>" \
+      ADMIN_EMAIL=sandeep@blackprism.in ADMIN_PASSWORD='<strong-password>' \
       ADMIN_NAME='Sandeep' BUSINESS_NAME='Cookery Shop' pnpm bootstrap:admin
       ```
-      *(PrismChat is invite-only — there is no public signup. Everyone else is invited from **Team**.)*
-- [ ] **C7.** Sign in at `https://prismchat.blackprism.in/login` and verify the dashboard loads
+      This is the only way in — there is no public signup.
+
+- [ ] **C7.** Verify at `https://prismchat.blackprism.in/login`
+      *(first request may take ~50s — free instance waking up)*
+      Sign in → add a contact → create a product. Confirms DB writes work.
+
+> **What works on free:** contacts + CSV import, WhatsApp setup/templates/auto-replies, inbox (inbound webhook + replies), leads pipeline, products, reminders, reports, team invites.
+> **What doesn't:** broadcast *sending*. You can create and launch campaigns — recipients are created and jobs queued — but nothing delivers until the worker exists.
 
 ### Phase D — Connect WhatsApp (once Meta approves)
 

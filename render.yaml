@@ -18,12 +18,15 @@ services:
   - type: web
     name: prismchat-web
     runtime: node
-    plan: starter          # free tier has no worker support + cold starts
+    plan: free             # $0. Spins down when idle (~50s cold start), no SSH.
     region: singapore      # closest to India
     rootDir: prismchat
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    # Migrations run once per deploy, before traffic shifts over.
-    preDeployCommand: pnpm db:deploy
+    # NOTE: preDeployCommand requires a PAID instance. On the free plan, run
+    # migrations from your laptop instead (see docs/PRODUCTION.md C4):
+    #   DIRECT_URL="<supabase-5432-url>" pnpm --dir prismchat db:deploy
+    # Uncomment this line after upgrading to Starter:
+    # preDeployCommand: pnpm db:deploy
     startCommand: pnpm start
     healthCheckPath: /
     autoDeploy: true
@@ -98,35 +101,47 @@ services:
         value: ap2
 
   # ------------------------------------------------------------- worker
-  - type: worker
-    name: prismchat-worker
-    runtime: node
-    plan: starter
-    region: singapore
-    rootDir: prismchat
-    buildCommand: corepack enable && pnpm install --frozen-lockfile
-    startCommand: pnpm worker
-    autoDeploy: true
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: NODE_ENV
-        value: production
-      # Worker needs DB, Redis, token decryption and Meta access to send.
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: ENCRYPTION_KEY
-        sync: false
-      - key: META_GRAPH_VERSION
-        value: v21.0
-      # Broadcast throttling. Meta caps Cloud API throughput and restricts
-      # numbers that burst. 20/sec ≈ 5,000 messages in ~4 min. Only raise once
-      # the number reaches a higher messaging tier with a green quality rating.
-      - key: BROADCAST_RATE_LIMIT
-        value: "20"
-      - key: BROADCAST_ATTEMPTS
-        value: "5"
+  #
+  # ⚠️  DISABLED FOR FREE-TIER TESTING.
+  #
+  # Render Background Workers are NOT available on the free plan (free supports
+  # only Static Site / Web Service / Postgres / Key Value). Without this worker,
+  # everything works EXCEPT broadcast sending — campaign jobs will queue in
+  # Redis and never be processed.
+  #
+  # To enable broadcasts (+$7/mo): uncomment the block below, set the web
+  # service `plan` to `starter`, re-apply the Blueprint, and add payment info.
+  #
+#   # ------------------------------------------------------------- worker
+#   - type: worker
+#     name: prismchat-worker
+#     runtime: node
+#     plan: starter
+#     region: singapore
+#     rootDir: prismchat
+#     buildCommand: corepack enable && pnpm install --frozen-lockfile
+#     startCommand: pnpm worker
+#     autoDeploy: true
+#     envVars:
+#       - key: NODE_VERSION
+#         value: "22"
+#       - key: NODE_ENV
+#         value: production
+#       # Worker needs DB, Redis, token decryption and Meta access to send.
+#       - key: DATABASE_URL
+#         sync: false
+#       - key: DIRECT_URL
+#         sync: false
+#       - key: REDIS_URL
+#         sync: false
+#       - key: ENCRYPTION_KEY
+#         sync: false
+#       - key: META_GRAPH_VERSION
+#         value: v21.0
+#       # Broadcast throttling. Meta caps Cloud API throughput and restricts
+#       # numbers that burst. 20/sec ≈ 5,000 messages in ~4 min. Only raise once
+#       # the number reaches a higher messaging tier with a green quality rating.
+#       - key: BROADCAST_RATE_LIMIT
+#         value: "20"
+#       - key: BROADCAST_ATTEMPTS
+#         value: "5"
