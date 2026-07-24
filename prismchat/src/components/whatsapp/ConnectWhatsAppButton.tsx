@@ -100,47 +100,59 @@ export function ConnectWhatsAppButton() {
 
     setStatus("waiting");
     window.FB.login(
-      async (response) => {
-        if (settled) return; // watchdog already fired
-        clearTimeout(watchdog);
+      // Meta's SDK rejects an AsyncFunction here (it checks the callback
+      // constructor rather than merely calling it). Keep this callback
+      // synchronous and run the server action in a detached async task.
+      function onFacebookLogin(response) {
+        void (async () => {
+          if (settled) return; // watchdog already fired
+          clearTimeout(watchdog);
 
-        const code = response.authResponse?.code;
-        if (!code) {
-          settled = true;
-          stopListening();
-          // A cancelled/closed popup with no CANCEL message yet — not an error.
-          setStatus((s) => (s === "error" ? s : "idle"));
-          return;
-        }
+          const code = response.authResponse?.code;
+          if (!code) {
+            settled = true;
+            stopListening();
+            // A cancelled/closed popup with no CANCEL message yet — not an error.
+            setStatus((s) => (s === "error" ? s : "idle"));
+            return;
+          }
 
-        if (!sessionInfo.wabaId) {
-          settled = true;
-          stopListening();
-          setError(
-            "Signed in, but Meta did not report a WhatsApp Business Account. Please try again.",
-          );
-          setStatus("error");
-          return;
-        }
+          if (!sessionInfo.wabaId) {
+            settled = true;
+            stopListening();
+            setError(
+              "Signed in, but Meta did not report a WhatsApp Business Account. Please try again.",
+            );
+            setStatus("error");
+            return;
+          }
 
-        setStatus("connecting");
-        const result = await connectEmbeddedSignup({
-          code,
-          wabaId: sessionInfo.wabaId,
-          phoneNumberId: sessionInfo.phoneNumberId,
-          event: sessionInfo.event,
-        });
-        settled = true;
-        stopListening();
+          setStatus("connecting");
+          try {
+            const result = await connectEmbeddedSignup({
+              code,
+              wabaId: sessionInfo.wabaId,
+              phoneNumberId: sessionInfo.phoneNumberId,
+              event: sessionInfo.event,
+            });
+            settled = true;
+            stopListening();
 
-        if (result?.error) {
-          setError(result.error);
-          setStatus("error");
-          return;
-        }
+            if (result?.error) {
+              setError(result.error);
+              setStatus("error");
+              return;
+            }
 
-        setStatus("idle");
-        router.refresh();
+            setStatus("idle");
+            router.refresh();
+          } catch {
+            settled = true;
+            stopListening();
+            setError("Could not finish the WhatsApp connection. Please try again.");
+            setStatus("error");
+          }
+        })();
       },
       {
         config_id: CONFIG_ID,

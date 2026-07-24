@@ -4,7 +4,27 @@ import { prisma } from "@/lib/prisma";
 export async function getWaba(workspaceId: string) {
   return prisma.whatsappBusinessAccount.findFirst({
     where: { workspaceId },
-    include: { phoneNumbers: { orderBy: { createdAt: "asc" } } },
+    // Keep this read limited to what the setup page renders. Besides reducing
+    // the data returned (notably the encrypted access token), this lets the
+    // page continue to load during a rolling deployment while an additive
+    // WhatsApp migration is being applied.
+    select: {
+      id: true,
+      wabaId: true,
+      name: true,
+      webhookVerifyToken: true,
+      status: true,
+      phoneNumbers: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          displayNumber: true,
+          name: true,
+          status: true,
+          qualityRating: true,
+        },
+      },
+    },
     orderBy: { createdAt: "asc" },
   });
 }
