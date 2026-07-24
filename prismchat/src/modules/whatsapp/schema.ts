@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-export const connectWabaSchema = z.object({
-  name: z.string().trim().min(1, "Enter a label").max(128),
-  wabaId: z.string().trim().regex(/^\d{5,}$/, "Enter a valid WhatsApp Business Account ID"),
-  accessToken: z.string().trim().min(20, "Enter a valid access token"),
-});
-
-export type ConnectWabaInput = z.infer<typeof connectWabaSchema>;
-
 export const TEMPLATE_CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"] as const;
 
 export const createTemplateSchema = z.object({

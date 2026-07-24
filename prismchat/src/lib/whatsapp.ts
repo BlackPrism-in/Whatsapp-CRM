@@ -75,6 +75,192 @@ async function graph<T>(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Embedded Signup — OAuth token exchange
+// ---------------------------------------------------------------------------
+
+/**
+ * Exchange the short-lived `code` returned by Embedded Signup for an access
+ * token.
+ *
+ * Some app configurations reject `redirect_uri` on Embedded Signup codes, so we
+ * retry once without it — matches the behaviour of the reference implementation.
+ */
+export async function exchangeCodeForToken(
+  code: string,
+): Promise<GraphResult<{ access_token: string }>> {
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    return { ok: false, error: "META_APP_ID / META_APP_SECRET are not configured" };
+  }
+
+  const attempt = async (includeRedirect: boolean) => {
+    const params = new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      code,
+    });
+    if (includeRedirect && process.env.NEXT_PUBLIC_APP_URL) {
+      params.set("redirect_uri", process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, ""));
+    }
+    return publicGraph<{ access_token: string }>(`oauth/access_token?${params}`);
+  };
+
+  const first = await attempt(true);
+  if (first.ok && first.data.access_token) return first;
+
+  const second = await attempt(false);
+  if (second.ok && second.data.access_token) return second;
+  return second.ok
+    ? { ok: false, error: "Meta returned no access_token" }
+    : second;
+}
+
+/** Upgrade a short-lived token to a long-lived one (~60 days). */
+export async function exchangeForLongLivedToken(
+  shortToken: string,
+): Promise<GraphResult<{ access_token: string }>> {
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    return { ok: false, error: "META_APP_ID / META_APP_SECRET are not configured" };
+  }
+  const params = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: appId,
+    client_secret: appSecret,
+    fb_exchange_token: shortToken,
+  });
+  return publicGraph<{ access_token: string }>(`oauth/access_token?${params}`);
+}
+
+/** Graph call that carries credentials in the query string, not a Bearer header. */
+async function publicGraph<T>(path: string): Promise<GraphResult<T>> {
+  try {
+    const res = await fetch(`${GRAPH_BASE}/${path}`, { cache: "no-store" });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      const err = json.error as { message?: string; code?: number } | undefined;
+      return {
+        ok: false,
+        error: err?.message ?? `Graph error ${res.status}`,
+        status: res.status,
+        code: err?.code,
+        transient: classifyError(res.status, err?.code),
+      };
+    }
+    return { ok: true, data: json as T };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Network error",
+      transient: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provisioning (Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribe our Meta app to a WABA's webhook events.
+ *
+ * ⚠️ Meta expects the **App Access Token** (`{app_id}|{app_secret}`) as a query
+ * parameter here — a Bearer header does not work. Falls back to the user token,
+ * which some configurations accept instead.
+ *
+ * Note: *which* fields are delivered (`messages`, `history`,
+ * `smb_app_state_sync`, `smb_message_echoes`) is app-level configuration in the
+ * Meta dashboard, not per-WABA.
+ */
+export async function subscribeAppToWaba(
+  wabaId: string,
+  userToken: string,
+): Promise<GraphResult<{ success: boolean }>> {
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+
+  if (appId && appSecret) {
+    const appToken = `${appId}|${appSecret}`;
+    const withAppToken = await postForm<{ success: boolean }>(
+      `${wabaId}/subscribed_apps`,
+      { access_token: appToken },
+    );
+    if (withAppToken.ok) return withAppToken;
+  }
+
+  // Fallback: the business user's own token.
+  return postForm<{ success: boolean }>(`${wabaId}/subscribed_apps`, {
+    access_token: userToken,
+  });
+}
+
+export type MetaPhoneNumberDetails = MetaPhoneNumber & {
+  /** True when the number is also live on the WhatsApp Business app (coexistence). */
+  is_on_biz_app?: boolean;
+  /** e.g. "CLOUD_API" */
+  platform_type?: string;
+};
+
+/** Full detail for one phone number, including coexistence indicators. */
+export function fetchPhoneNumberDetails(phoneNumberId: string, accessToken: string) {
+  return graph<MetaPhoneNumberDetails>(
+    `${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,status,is_on_biz_app,platform_type`,
+    accessToken,
+  );
+}
+
+/**
+ * Register a phone number for Cloud API messaging.
+ * ⚠️ Must be SKIPPED for coexistence numbers — they are already registered, and
+ * re-registering breaks the WhatsApp Business app link.
+ */
+export function registerPhoneNumber(
+  phoneNumberId: string,
+  accessToken: string,
+  pin: string,
+) {
+  return graph<{ success: boolean }>(`${phoneNumberId}/register`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ messaging_product: "whatsapp", pin }),
+  });
+}
+
+/** POST with form-encoded credentials in the body (no Bearer header). */
+async function postForm<T>(
+  path: string,
+  params: Record<string, string>,
+): Promise<GraphResult<T>> {
+  try {
+    const res = await fetch(`${GRAPH_BASE}/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params).toString(),
+      cache: "no-store",
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      const err = json.error as { message?: string; code?: number } | undefined;
+      return {
+        ok: false,
+        error: err?.message ?? `Graph error ${res.status}`,
+        status: res.status,
+        code: err?.code,
+        transient: classifyError(res.status, err?.code),
+      };
+    }
+    return { ok: true, data: json as T };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Network error",
+      transient: true,
+    };
+  }
+}
+
 export type MetaPhoneNumber = {
   id: string;
   display_phone_number: string;

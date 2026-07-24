@@ -1,18 +1,17 @@
 "use server";
 
-import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireWorkspace, requireRole } from "@/lib/session";
-import { encrypt, decrypt } from "@/lib/crypto";
+import { decrypt } from "@/lib/crypto";
 import {
-  verifyWaba,
   fetchPhoneNumbers,
   fetchTemplates,
   createTemplate as metaCreateTemplate,
 } from "@/lib/whatsapp";
+import { connectViaEmbeddedSignup } from "./embedded-signup";
+import { provisionWaba } from "./provision";
 import {
-  connectWabaSchema,
   createTemplateSchema,
   autoReplySchema,
   buildTemplateComponents,
@@ -20,6 +19,47 @@ import {
 import type { WhatsappTemplateStatus } from "@/generated/prisma/enums";
 
 export type WaState = { error?: string; ok?: boolean; message?: string } | undefined;
+
+/**
+ * Connect a client's WhatsApp Business Account from an Embedded Signup `code`.
+ * Called by the Connect button after Meta's popup completes.
+ */
+export async function connectEmbeddedSignup(input: {
+  code: string;
+  wabaId: string;
+  phoneNumberId?: string | null;
+  event?: string | null;
+}): Promise<WaState & { mode?: string }> {
+  const { workspace } = await requireRole("admin");
+
+  const res = await connectViaEmbeddedSignup({
+    workspaceId: workspace.id,
+    code: input.code,
+    wabaId: input.wabaId,
+    phoneNumberId: input.phoneNumberId,
+    event: input.event,
+  });
+
+  if (!res.ok) return { error: res.error };
+
+  // Phase 2 — auto-wire webhooks, numbers and templates so the client never has
+  // to open Meta's dashboard. Never throws; returns warnings for partial success.
+  const provisioned = await provisionWaba(res.wabaId);
+
+  revalidatePath("/app/whatsapp");
+
+  const warnings = [...res.warnings, ...provisioned.warnings];
+  const summary =
+    provisioned.phoneCount > 0
+      ? `Connected ${res.name} with ${provisioned.phoneCount} phone number(s).`
+      : `Connected ${res.name}.`;
+
+  return {
+    ok: true,
+    mode: provisioned.isOnBizApp ? "coexistence" : res.mode,
+    message: warnings.length > 0 ? `${summary} ${warnings.join(" ")}` : summary,
+  };
+}
 
 /** Get the decrypted access token for the workspace's WABA. */
 async function getWabaWithToken(workspaceId: string) {
@@ -29,71 +69,6 @@ async function getWabaWithToken(workspaceId: string) {
   });
   if (!waba) return null;
   return { waba, token: decrypt(waba.accessToken) };
-}
-
-export async function connectWaba(_prev: WaState, formData: FormData): Promise<WaState> {
-  const { workspace } = await requireRole("admin");
-  const parsed = connectWabaSchema.safeParse({
-    name: formData.get("name"),
-    wabaId: formData.get("wabaId"),
-    accessToken: formData.get("accessToken"),
-  });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
-
-  const { name, wabaId, accessToken } = parsed.data;
-
-  // Validate against Meta before storing.
-  const check = await verifyWaba(wabaId, accessToken);
-  if (!check.ok) {
-    return { error: `Could not verify with Meta: ${check.error}` };
-  }
-
-  const existing = await prisma.whatsappBusinessAccount.findUnique({ where: { wabaId } });
-  if (existing && existing.workspaceId !== workspace.id) {
-    return { error: "This WhatsApp Business Account is already connected elsewhere" };
-  }
-
-  const verifyToken = crypto.randomBytes(24).toString("hex");
-  const verifyTokenHash = crypto.createHash("sha256").update(verifyToken).digest("hex");
-
-  const waba = await prisma.whatsappBusinessAccount.upsert({
-    where: { wabaId },
-    create: {
-      workspaceId: workspace.id,
-      wabaId,
-      name: check.data.name ?? name,
-      accessToken: encrypt(accessToken),
-      webhookVerifyToken: verifyToken,
-      webhookVerifyTokenHash: verifyTokenHash,
-      status: "connected",
-    },
-    update: {
-      name: check.data.name ?? name,
-      accessToken: encrypt(accessToken),
-      status: "connected",
-    },
-  });
-
-  // Ensure a whatsapp ChannelAccount exists for the inbox/broadcasting layer.
-  await prisma.channelAccount.upsert({
-    where: { id: waba.id }, // deterministic: reuse waba id as channel account id
-    create: {
-      id: waba.id,
-      workspaceId: workspace.id,
-      channel: "whatsapp",
-      provider: "meta_cloud",
-      displayName: name,
-      businessAccountId: wabaId,
-      status: "active",
-    },
-    update: { status: "active", displayName: name },
-  });
-
-  // Pull phone numbers immediately.
-  await syncPhoneNumbersInternal(workspace.id);
-
-  revalidatePath("/app/whatsapp");
-  return { ok: true, message: "WhatsApp Business Account connected." };
 }
 
 async function syncPhoneNumbersInternal(workspaceId: string) {

@@ -12,6 +12,7 @@ export const QUEUE_NAMES = {
   leadScrape: "lead-scrape",
   socialPublish: "social-publish",
   ecommerceSync: "ecommerce-sync",
+  whatsappSync: "whatsapp-sync", // template/number sync after Embedded Signup
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -7,6 +7,7 @@ import {
   finalizeCampaignIfDone,
   markRecipientFailedByContact,
 } from "../modules/broadcasting/send";
+import { syncTemplatesForWaba } from "../modules/whatsapp/sync";
 
 /**
  * PrismChat background worker process. Run separately from the Next.js server
@@ -39,8 +40,18 @@ const placeholder: Processor = async (job) => {
   return { ok: true };
 };
 
+/** Template sync after a WABA connects via Embedded Signup. */
+const whatsappSyncProcessor: Processor = async (job) => {
+  const { wabaId } = job.data as { wabaId: string };
+  const result = await syncTemplatesForWaba(wabaId);
+  if ("error" in result) throw new Error(result.error);
+  console.log(`[worker:whatsapp-sync] synced ${result.synced} template(s)`);
+  return result;
+};
+
 const processors: Partial<Record<QueueName, Processor>> = {
   [QUEUE_NAMES.broadcast]: broadcastProcessor,
+  [QUEUE_NAMES.whatsappSync]: whatsappSyncProcessor,
 };
 
 const workers = Object.values(QUEUE_NAMES).map((name: QueueName) => {

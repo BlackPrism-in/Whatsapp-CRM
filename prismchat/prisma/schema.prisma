@@ -809,6 +809,16 @@ model WhatsappBusinessAccount {
   webhookVerifyToken    String?
   webhookVerifyTokenHash String? @unique
   status                String   @default("connected")
+  // How this account was connected: manual (legacy form), standard (Embedded
+  // Signup), or coexistence (client keeps the WhatsApp Business app).
+  onboardingMode        String   @default("manual")
+  // From Meta: the number is live on the WhatsApp Business app (coexistence).
+  isOnBizApp            Boolean  @default(false)
+  // Meta's platform_type for the number, e.g. CLOUD_API.
+  platformType          String?
+  // Coexistence contact/history import runs ONCE — track so we never re-trigger.
+  historySyncedAt       DateTime?
+  contactsSyncedAt      DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

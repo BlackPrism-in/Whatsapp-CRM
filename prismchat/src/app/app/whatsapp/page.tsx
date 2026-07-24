@@ -1,7 +1,7 @@
 import { requireWorkspace } from "@/lib/session";
 import { getWaba } from "@/modules/whatsapp/queries";
 import { WhatsappTabs } from "@/components/whatsapp/WhatsappTabs";
-import { ConnectWabaForm } from "@/components/whatsapp/ConnectWabaForm";
+import { ConnectWhatsAppButton } from "@/components/whatsapp/ConnectWhatsAppButton";
 import { SyncPhoneNumbersButton, DisconnectWabaButton } from "@/components/whatsapp/WabaActions";
 
 export default async function WhatsappSetupPage() {
@@ -24,10 +24,12 @@ export default async function WhatsappSetupPage() {
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-surface p-5 text-sm text-muted">
             Connect your Meta WhatsApp Business Account to send broadcasts and
-            receive messages. You&apos;ll need your WABA ID and a permanent
-            System User access token.
+            receive messages. You&apos;ll sign in with the Facebook account that
+            manages your business — no tokens to copy or paste. If you already
+            use the WhatsApp Business app, you can keep using it after
+            connecting.
           </div>
-          <ConnectWabaForm />
+          <ConnectWhatsAppButton />
         </div>
       ) : (
         <div className="space-y-6">

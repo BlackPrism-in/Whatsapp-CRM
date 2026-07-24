@@ -3,6 +3,8 @@
 Everything here is done in Meta's dashboards on your account. Work top to bottom.
 **Start the App Review as early as possible — it's the long pole (1–2 weeks).**
 
+> The **build** (Phases 1–3 of Embedded Signup) is complete and waiting on this doc — see [`EMBEDDED_SIGNUP_PLAN.md`](./EMBEDDED_SIGNUP_PLAN.md) for status. The Connect button is live in the app; it just needs App Review to pass before *other businesses* (not just you) can use it.
+
 ---
 
 ## 0.1 — Business Verification
@@ -48,12 +50,15 @@ Embedded Signup runs on top of this product.
 
 ## 0.4 — Create the Embedded Signup configuration
 
-1. App → **WhatsApp → Configuration** (or *Facebook Login for Business → Configurations*)
-2. **Create configuration**
-   - Type: **WhatsApp Embedded Signup**
-   - Permissions: `whatsapp_business_management`, `whatsapp_business_messaging`
-   - **Enable Coexistence** if the option is offered (lets clients keep the WhatsApp Business app)
-3. **Copy the `config_id`** → this is what the frontend button needs
+✅ **DONE (2026-07-24).** Configuration created with:
+- Login variation: **WhatsApp Embedded Signup**
+- Assets: **WhatsApp accounts only** (Pages/Ad accounts/Catalogs/Pixels/Instagram unchecked — avoids blocking clients without an Ad account, and avoids over-requesting for App Review)
+- Access token: **System-user**, **Never** expires
+- Products: **WhatsApp Cloud API** only
+- Permissions: `business_management` (auto-added dependency), `whatsapp_business_management`, `whatsapp_business_messaging`
+- **`config_id`: `1365519555548055`** → saved as `NEXT_PUBLIC_META_CONFIG_ID` in the app's environment, wired into the live Connect button
+
+⚠️ Coexistence has **not yet been enabled** on this configuration — do that before Phase 4 (data sync) is built, and subscribe the 3 extra webhook fields in §0.6 below.
 
 ---
 
@@ -121,14 +126,15 @@ When configured correctly, the signup popup offers **"connect your existing What
 
 ## Checklist
 
-- [ ] 0.1 Business verification approved
-- [ ] 0.2 Tech Provider submitted
-- [ ] 0.3 Facebook Login for Business added + real Privacy/ToS/Data-deletion URLs live
-- [ ] 0.4 Embedded Signup configuration created → **`config_id` captured**
-- [ ] 0.5 App Review submitted (both permissions + screencast + test login)
-- [ ] 0.6 Coexistence enabled + 3 extra webhook fields subscribed (`history`, `smb_app_state_sync`, `smb_message_echoes`)
+- [x] 0.1 Business verification submitted (in review since 2026-07-22)
+- [ ] 0.2 Tech Provider submitted — **confirm this is done; required before Advanced Access will be granted**
+- [x] 0.3 Facebook Login for Business added + real Privacy/ToS/Data-deletion URLs live *(pages built 2026-07-24 — still need pasting into App settings → Basic if not done)*
+- [x] 0.4 Embedded Signup configuration created → **`config_id` = `1365519555548055`**, wired into the app
+- [ ] 0.5 App Review submitted (both permissions + screencast + test login) — **the Connect button now exists, so the screencast can be recorded**
+- [ ] 0.6 Coexistence enabled on the configuration + 3 extra webhook fields subscribed (`history`, `smb_app_state_sync`, `smb_message_echoes`) — needed before Phase 4 (data sync) can be built
 
-**Send me the `config_id` when you have it** — that's what Phase 3's Connect button needs.
+**Remaining before other businesses can self-onboard:** 0.2 (confirm), 0.5 (submit — the app-side blocker is gone), 0.6 (for coexistence specifically).
+**You personally can likely test the Connect button already** — Meta's own UI noted that Standard Access permissions "will only be requested from people with roles on this app," which includes you as the developer.
 
 ---
 
