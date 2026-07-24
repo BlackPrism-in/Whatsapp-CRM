@@ -163,13 +163,11 @@ Set in Render. `W` = web service, `K` = worker service.
 |---|---|
 | Webhook signature verification (`X-Hub-Signature-256`) | ✅ **Done** — HMAC + timing-safe compare, fails closed in production |
 | **Broadcast throttling** | ✅ **Done** — worker paces sends at `BROADCAST_RATE_LIMIT` (default 20/sec ≈ 5,000 in ~4 min). Rate-limit/outage errors retry with exponential backoff; permanent errors fail fast |
-| **Login rate limiting** | ⏳ Not done — brute-force protection |
+| **Login rate limiting** | ✅ **Done** — Redis-backed, 8 attempts / 10 min per IP+email, fails open if Redis blips |
 | Realtime inbox client | ⏳ Server-side triggers exist; client subscriber not wired. Inbox updates on refresh |
-| Password reset | ⏳ Not built — admins can re-invite as a workaround |
+| Password reset | ✅ **Done** — `/forgot-password` → emailed one-time link (1h expiry, single-use), enumeration-safe |
 | 2FA | ⏳ Schema exists, flow doesn't |
 | Automated backups | ✅ Included with Supabase Pro |
-
-**Remaining before real traffic:** login rate limiting.
 
 **Tuning throughput:** `BROADCAST_RATE_LIMIT` (msgs/sec, default 20) and `BROADCAST_ATTEMPTS` (default 5) on the **worker** service. Start at 20; raise only after the number reaches a higher Meta messaging tier and quality rating stays green.
 

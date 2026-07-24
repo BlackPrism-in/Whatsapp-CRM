@@ -141,6 +141,11 @@ export default function Home() {
       </section>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm text-neutral-500">
+        <div className="mb-3 flex flex-wrap justify-center gap-x-5 gap-y-2">
+          <Link href="/privacy" className="hover:text-neutral-300">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-neutral-300">Terms of Service</Link>
+          <Link href="/data-deletion" className="hover:text-neutral-300">Data Deletion</Link>
+        </div>
         © {new Date().getFullYear()} PrismChat · A BlackPrism product
       </footer>
     </main>
