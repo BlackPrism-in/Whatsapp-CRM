@@ -1,7 +1,47 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { syncPhoneNumbers, disconnectWaba } from "@/modules/whatsapp/actions";
+import {
+  syncPhoneNumbers,
+  disconnectWaba,
+  checkWhatsappHealth,
+} from "@/modules/whatsapp/actions";
+
+/**
+ * Verify the stored credentials still work. Surfaces a revoked/expired token
+ * before it silently breaks a broadcast.
+ */
+export function CheckConnectionButton() {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const res = await checkWhatsappHealth();
+            setMsg(
+              res?.error
+                ? { text: res.error, ok: false }
+                : { text: res?.message ?? "Checked.", ok: true },
+            );
+          })
+        }
+        className="rounded-lg border border-border px-4 py-2 text-sm transition hover:bg-surface-subtle disabled:opacity-60"
+      >
+        {pending ? "Checking…" : "Check connection"}
+      </button>
+      {msg && (
+        <span className={`text-sm ${msg.ok ? "text-muted" : "text-danger"}`}>
+          {msg.text}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function SyncPhoneNumbersButton() {
   const [pending, start] = useTransition();

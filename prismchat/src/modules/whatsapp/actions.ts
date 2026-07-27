@@ -11,6 +11,7 @@ import {
 } from "@/lib/whatsapp";
 import { connectViaEmbeddedSignup } from "./embedded-signup";
 import { provisionWaba } from "./provision";
+import { verifyWabaHealth } from "./token-health";
 import {
   createTemplateSchema,
   autoReplySchema,
@@ -59,6 +60,20 @@ export async function connectEmbeddedSignup(input: {
     mode: provisioned.isOnBizApp ? "coexistence" : res.mode,
     message: warnings.length > 0 ? `${summary} ${warnings.join(" ")}` : summary,
   };
+}
+
+/**
+ * Verify the stored credentials still work, and refresh the account's health
+ * status. Lets a client confirm the connection is live instead of finding out
+ * partway through a broadcast.
+ */
+export async function checkWhatsappHealth(): Promise<WaState> {
+  const { workspace } = await requireWorkspace();
+  const res = await verifyWabaHealth(workspace.id);
+  revalidatePath("/app/whatsapp");
+  return res.ok
+    ? { ok: true, message: `Connection is healthy (${res.name}).` }
+    : { error: res.message };
 }
 
 /** Get the decrypted access token for the workspace's WABA. */

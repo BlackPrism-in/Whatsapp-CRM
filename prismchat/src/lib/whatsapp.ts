@@ -89,7 +89,7 @@ async function graph<T>(
 export async function exchangeCodeForToken(
   code: string,
 ): Promise<GraphResult<{ access_token: string }>> {
-  const appId = process.env.META_APP_ID;
+  const appId = process.env.META_APP_ID ?? process.env.NEXT_PUBLIC_META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
   if (!appId || !appSecret) {
     return { ok: false, error: "META_APP_ID / META_APP_SECRET are not configured" };
@@ -121,7 +121,7 @@ export async function exchangeCodeForToken(
 export async function exchangeForLongLivedToken(
   shortToken: string,
 ): Promise<GraphResult<{ access_token: string }>> {
-  const appId = process.env.META_APP_ID;
+  const appId = process.env.META_APP_ID ?? process.env.NEXT_PUBLIC_META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
   if (!appId || !appSecret) {
     return { ok: false, error: "META_APP_ID / META_APP_SECRET are not configured" };
@@ -179,7 +179,7 @@ export async function subscribeAppToWaba(
   wabaId: string,
   userToken: string,
 ): Promise<GraphResult<{ success: boolean }>> {
-  const appId = process.env.META_APP_ID;
+  const appId = process.env.META_APP_ID ?? process.env.NEXT_PUBLIC_META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
 
   if (appId && appSecret) {

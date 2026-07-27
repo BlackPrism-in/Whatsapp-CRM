@@ -13,7 +13,13 @@ Everything below can be prepared while it's pending, but App Review won't pass u
 
 ---
 
-## 0.2 — Become a Tech Provider
+## 0.2 — Become a Tech Provider 🔴 CURRENT BLOCKER
+
+> **Tested live 2026-07-24:** clicking Connect WhatsApp opens Meta's popup, which returns
+> *"BlackPrism Private Limited can't onboard customers at the moment."*
+> That message means Meta does not yet consider BlackPrism authorised to onboard customer
+> businesses. **This step is the most likely cause.** There is no developer bypass —
+> being an admin on the app does not exempt you from it.
 
 1. developers.facebook.com → your **PrismChat** app
 2. Left nav → **Become a Partner → Become Tech Provider**
@@ -88,7 +94,15 @@ Record one continuous video (2–4 min, no cuts):
 6. Show replying from the Inbox and the message arriving on the phone
 7. Show **Disconnect** (proves the business controls its own data)
 
-> 🔴 Chicken-and-egg: the screencast needs the Connect button, which needs `config_id` (0.4). So do 0.4 **before** submitting. You can record with Standard Access on your *own* WABA — that's acceptable.
+> 🔴 **Chicken-and-egg (real, confirmed 2026-07-24):** the screencast is supposed to show a completed signup — but the signup is blocked by the very approvals you're applying for ("can't onboard customers at the moment").
+>
+> **How to handle it:** record what you *can* demonstrate and be explicit in the submission notes:
+> 1. Sign in to PrismChat → **WhatsApp → Setup** → click **Connect WhatsApp**
+> 2. Show Meta's own popup opening with the correct app + configuration
+> 3. Show the blocking message, and state in the notes: *"The onboarding flow is fully implemented and reaches Meta correctly; it is blocked pending Tech Provider approval and Advanced Access, which this submission requests."*
+> 4. Then demonstrate the **rest of the product working on our own connected WABA** — inbound message arriving in the Inbox, replying from the Inbox, template list, disconnect
+>
+> Reviewers accept this when the integration is clearly built and the block is Meta-side. Do **not** fake a completed signup.
 
 ### Also required
 - **Data deletion instructions URL** (real page, not facebook.com)

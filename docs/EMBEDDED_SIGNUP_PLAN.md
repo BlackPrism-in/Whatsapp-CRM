@@ -16,15 +16,47 @@
 |---|---|
 | **1 — OAuth code exchange** | ✅ **Done** |
 | **2 — Auto-wire webhooks + numbers** | ✅ **Done** |
-| **3 — Connect button, manual form removed** | ✅ **Done** — code complete, blocked only by HTTPS for full local testing |
-| **4 — Coexistence data sync** | ⏳ **Not started** |
-| **5 — Multi-tenant hardening** | ⏳ **Not started** |
+| **3 — Connect button, manual form removed** | ✅ **Done** |
+| **4 — Coexistence data sync** | ✅ **Done** — verified against realistic payloads |
+| **5 — Multi-tenant hardening** | ✅ **Done** — token health, auto-pause, rate clamp, reconnect UI |
 
 **What works right now:** a client (or you, testing) can click **Connect WhatsApp** on the deployed site, sign in via Facebook, and PrismChat automatically stores the WABA, subscribes webhooks, syncs phone numbers, registers the number, and queues a template sync — with zero manual Meta steps. The old manual entry form no longer exists.
 
-**What doesn't work yet:** coexistence numbers connect and send/receive fine, but their **existing WhatsApp contacts and chat history are not imported** (Phase 4). Multi-client operational tooling (reconnect flows, token-health monitoring) also isn't built (Phase 5).
+**All five build phases are complete.** The remaining blocker is entirely on Meta's side (see below), not in the code.
 
-**Not yet verified:** a signup has not been completed end-to-end past Meta's popup, because that requires either (a) the deployed HTTPS domain, or (b) Advanced Access for a non-developer test account. Everything up to that boundary — SDK loading, `FB.login` invocation, the backend pipeline — has been verified with real Graph API calls and a live browser test.
+**Deliberately deferred:** a cross-client admin console (one screen listing every connected client's health). Per-workspace health is fully surfaced, which is what a workspace admin actually needs; a superadmin view only becomes worthwhile at several clients.
+
+**🔴 Confirmed blocker (tested live 2026-07-24):** clicking **Connect WhatsApp** on the deployed site opens Meta's popup, which then shows:
+
+> *"BlackPrism Private Limited can't onboard customers at the moment"*
+
+This is **Meta's gate, not a PrismChat bug** — the app-side flow works and reaches Meta correctly. Onboarding *other businesses* requires all three of:
+1. **Tech Provider status approved** (§0.2) — the single most likely cause of this exact message
+2. **Business Verification approved** (§0.1 — still *in review*)
+3. **Advanced Access** granted for `whatsapp_business_management` + `whatsapp_business_messaging` (§0.5 — **not yet submitted**)
+
+⚠️ **Correction to an earlier assumption:** I previously suggested you could test the Connect button yourself as an app developer, because Standard Access permissions are requestable from "people with roles on this app". That is **wrong for Embedded Signup** — the *customer-onboarding* flow is gated on Tech Provider status regardless of who is clicking. There is no developer bypass. The flow cannot be exercised end-to-end until Meta approves.
+
+**Consequence for App Review:** the required screencast (§0.5) shows a completed signup — which is itself blocked by this gate. See §0.5 for how to handle that chicken-and-egg.
+
+---
+
+## 🚨 Before deploying this code
+
+**Run the migrations first.** Two migrations are pending on production:
+
+```bash
+cd prismchat
+DIRECT_URL="<supabase 5432 url>" pnpm db:deploy
+```
+
+- `embedded_signup_fields` — `onboardingMode`, `isOnBizApp`, `platformType`, `historySyncedAt`, `contactsSyncedAt`
+- `waba_token_health` — `lastError`, `lastErrorAt`, `lastVerifiedAt`
+
+The WhatsApp setup page reads these columns. Deploying the code before the
+migration produces a **500 on `/app/whatsapp`** — this exact failure already
+happened once when `embedded_signup_fields` shipped ahead of its migration.
+Render's free tier has no `preDeployCommand`, so this step is manual.
 
 ---
 
@@ -33,8 +65,8 @@
 | Constraint | Impact |
 |---|---|
 | **Number must NOT already be on Cloud API** | Coexistence only works for numbers currently on the **WhatsApp Business app**. Our existing test number is *already* on Cloud API → it can't use coexistence. |
-| **Throughput capped at 20 msg/sec** | Coexistence numbers are hard-limited. Our `BROADCAST_RATE_LIMIT` default of 20 already matches — but must be **enforced, not just defaulted**, for these numbers (Phase 5). |
-| **3 extra webhook fields** | `history`, `smb_app_state_sync`, `smb_message_echoes` — our webhook currently only handles `messages`. Real work (Phase 4). |
+| **Throughput capped at 20 msg/sec** | ✅ Enforced in Phase 5 — `effectiveSendRate()` clamps the configured rate down to 20 for coexistence numbers, so a higher `BROADCAST_RATE_LIMIT` can't cause over-sending. |
+| **3 extra webhook fields** | `history`, `smb_app_state_sync`, `smb_message_echoes` — ✅ handled in code (Phase 4). Still must be **subscribed in the Meta configuration** (`PHASE0_META_SETUP.md` §0.6) before any payloads arrive. |
 | **Sync is one-time** | Contacts/history import runs **once**. To re-sync, the client must offboard and redo the flow. No retry safety net — must not lose the payload. |
 | **180 days history / 14 days media** | Older messages and media won't come across. Set client expectations. |
 | **Business app ≥ 2.24.17** | Client must update their phone app first. |
@@ -100,33 +132,55 @@
 
 ---
 
-## ⏳ Phase 4 — Coexistence data sync · NOT STARTED · the client-visible win
+## ✅ Phase 4 — Coexistence data sync · DONE
 
-This is what makes clients say yes — their existing WhatsApp data appears in PrismChat.
+**Built as:** `src/modules/whatsapp/coexistence.ts`, routed from `processWebhook()` in `src/modules/inbox/inbound.ts`.
 
-1. **Request contact sync** via the SMB App Data API
-2. **Request history sync** via the SMB App Data API
-3. **Handle `smb_app_state_sync`** → import/update contacts into `Contact`
-4. **Handle `history`** → backfill `Conversation` + `Message` (up to 180 days)
-5. **Handle `smb_message_echoes`** → messages the client sends *from their phone* also land in PrismChat's Inbox (keeps both sides in sync)
-6. Process **asynchronously via the worker** — history payloads are large
-7. ⚠️ **Idempotency + durability:** sync is **one-shot**. Persist raw payloads before processing so a crash can't lose the client's history.
+| Webhook field | Handler | Behaviour |
+|---|---|---|
+| `smb_app_state_sync` | `handleAppStateSync()` | Imports the client's phone contacts. **`remove` actions are deliberately ignored** — deleting a contact on the phone shouldn't silently destroy CRM records (notes, tags, campaign history) the business relies on. |
+| `history` | `handleHistory()` | Backfills `Conversation` + `Message` (up to 180 days), using `history_context.from_me` to set direction, and back-dating `sentAt` from Meta's unix timestamps so the inbox orders correctly. |
+| `smb_message_echoes` | `handleMessageEchoes()` | Mirrors messages the business sends **from their phone** into the inbox — otherwise staff would see a customer question with no sign it was already answered. |
 
-**Deliverable:** client connects → their contacts and recent chats are already in PrismChat, and phone-sent messages keep appearing.
+**Durability (the critical part).** Coexistence sync is one-shot — Meta never resends it. So `processCoexistenceChange()` **persists every raw payload to `InboundWebhookEvent` before processing**, keyed by a content hash. If processing throws, `processedAt` stays null and the payload can be replayed from storage rather than the client's history being lost permanently. Already-processed payloads short-circuit, so Meta retries are safe.
 
-**Prerequisite:** the 3 extra webhook fields must be subscribed in the Meta configuration (`PHASE0_META_SETUP.md` §0.6) before this phase can receive any payloads to handle.
+Contacts are matched by normalised E.164 phone, and an existing contact's name is only filled in **if it was empty** — never overwriting a name the business edited.
+
+**Bug caught during testing:** conversations were being created with the WABA row id as `channelAccountId`. Those two ids happen to coincide when created by `connectViaEmbeddedSignup`, so it would have appeared to work — but it's a foreign key to `ChannelAccount`, and the assumption breaks if that row is ever missing. Now resolved by an explicit lookup, with `null` tolerated.
+
+**Verified** end-to-end against realistic Meta payloads on a real database:
+- 2 contacts imported, the `remove` entry correctly skipped
+- Inbound vs outbound direction correct from `from_me` (`hist_1` → `in`, `hist_2` → `out`)
+- Phone-sent echo landed as an outbound message
+- **Replaying the identical history payload produced zero duplicates**
+- All 3 payloads stored *and* marked processed
+
+⚠️ **Still needs Meta-side enablement:** the 3 webhook fields must be subscribed on the Embedded Signup configuration (`PHASE0_META_SETUP.md` §0.6) before any of these payloads will actually arrive. The handling code is ready and waiting.
 
 ---
 
-## ⏳ Phase 5 — Multi-tenant hardening · NOT STARTED
+## ✅ Phase 5 — Multi-tenant hardening · DONE
 
-- Reconnect / disconnect per workspace (disconnect already exists from the pre-Embedded-Signup work; reconnect-after-revoke flow doesn't)
-- Detect + surface **expired or revoked** tokens (today it fails silently at send time)
-- **Enforce the 20 msg/sec cap** for coexistence numbers (override `BROADCAST_RATE_LIMIT`)
-- Handle "already connected elsewhere", permission-denied, partial-success
-- Admin view: connected clients, token health, last sync, onboarding mode
+**Built as:** `src/modules/whatsapp/token-health.ts`, wired into every send path.
 
-**Deliverable:** onboard many clients without babysitting.
+**The problem it solves:** before this, a revoked or expired token failed *silently at send time*. A broadcast would mark thousands of recipients "failed", the inbox would show a raw Meta error, and nothing told the client their connection needed re-authorising.
+
+1. **Auth-error classification** — `isAuthError()` separates "this token is dead" (Meta codes 190/102/463/467/200/10, HTTP 401/403) from transient failures (rate limits, Meta 5xx). Only the former flags the account; a Meta outage must never tell a client to reconnect.
+2. **Health recorded on every Graph call** — `recordGraphOutcome()` marks the account healthy on success and `token_invalid` on auth failure, storing Meta's own error text for the UI.
+3. **🔑 Broadcasts auto-pause on auth failure** — an invalid token fails identically for every remaining recipient, so the campaign is paused after the *first* one. Remaining recipients stay `pending` and resumable instead of burning the whole audience on guaranteed failures.
+4. **Safe credential reads** — `getCredentials()` never throws. `decrypt()` throws if `ENCRYPTION_KEY` was rotated or the ciphertext is corrupt; that previously propagated as a **500** (the exact class of failure that took `/app/whatsapp` down). It now degrades to an actionable error and flags the account.
+5. **Coexistence rate cap enforced** — `effectiveSendRate()` clamps the configured rate to Meta's hard **20 msg/sec** ceiling for coexistence numbers. Previously `BROADCAST_RATE_LIMIT` could be set higher and would over-send, risking throttling or a flagged number.
+6. **Reconnect UI** — a red banner with Meta's actual error and an inline Connect button; red status dot, "needs reconnect" badge, coexistence badge, and last-verified timestamp.
+7. **Proactive "Check connection"** — verifies credentials against Meta on demand, so a dead token is found *before* a broadcast rather than during one.
+
+**Verified:**
+- Auth classification 7/7 (190, 102, 200, HTTP 401 → auth; 130429 rate-limit, HTTP 500, 131026 undeliverable → *not* auth)
+- Rate clamp 3/3 (coexistence 80→20, keeps a lower 10, standard 80 untouched)
+- Credential safety 8/8 in an isolated tenant — corrupt ciphertext returns `ok:false` instead of throwing, flags `credentials_unreadable`, and health transitions set/clear correctly
+- **Campaign auto-pause, end-to-end** with a simulated code-190 response: campaign paused after recipient 1, WABA flagged, recipient 2 short-circuited and left `pending`
+- **Live browser test:** "Check connection" called the real Graph API, Meta rejected the stored dummy token, and the error surfaced in the reconnect banner
+
+**Bug caught by running the worker** (`tsc` and `next build` both passed): the startup rate resolution used top-level `await`, which fails because tsx compiles the worker to CJS. Restructured into an async `bootstrap()`.
 
 ---
 
@@ -137,10 +191,12 @@ This is what makes clients say yes — their existing WhatsApp data appears in P
 | 1 — OAuth exchange | ~1 day | ✅ Done |
 | 2 — Auto-wire webhooks/numbers | ~1 day | ✅ Done |
 | 3 — Connect button + remove manual form | ~1 day | ✅ Done |
-| 4 — Coexistence data sync | ~1.5 days | ⏳ Remaining |
-| 5 — Multi-tenant hardening | ~1 day | ⏳ Remaining |
+| 4 — Coexistence data sync | ~1.5 days | ✅ Done |
+| 5 — Multi-tenant hardening | ~1 day | ✅ Done |
 
-**~2.5 dev days remaining.** Full end-to-end verification of Phases 1–3 (a real signup completing all the way through) still needs either the deployed HTTPS domain or Advanced Access — the code path is built and unit/integration-tested, but Meta's own HTTPS + access-level gates haven't been passed yet.
+**~1 dev day of build work remaining.**
+
+**The real remaining blocker is Meta, not code.** A signup has never completed end-to-end, because Meta returns *"BlackPrism Private Limited can't onboard customers at the moment"* — see the Status section. Every phase is built and tested in isolation against realistic payloads, but the full live path stays unproven until Tech Provider / Business Verification / Advanced Access clear.
 
 ---
 

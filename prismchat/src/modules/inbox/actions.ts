@@ -5,6 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/session";
 import { decrypt } from "@/lib/crypto";
 import { sendTextMessage } from "@/lib/whatsapp";
+import {
+  recordGraphOutcome,
+  markTokenInvalid,
+  isAuthError,
+} from "@/modules/whatsapp/token-health";
 
 export type ReplyState = { error?: string; ok?: boolean } | undefined;
 
@@ -36,18 +41,34 @@ export async function sendReply(
   let error: string | undefined;
 
   if (waba && phone) {
-    const res = await sendTextMessage(
-      phone.phoneNumberId,
-      decrypt(waba.accessToken),
-      conversation.contact.phoneE164,
-      body,
-    );
-    if (res.ok) {
-      status = "sent";
-      providerMessageId = res.data.messages?.[0]?.id ?? null;
-    } else {
+    let token: string | null = null;
+    try {
+      token = decrypt(waba.accessToken);
+    } catch {
+      await markTokenInvalid(waba.id, "Stored credentials could not be decrypted.");
+    }
+
+    if (!token) {
       status = "failed";
-      error = res.error;
+      error = "WhatsApp credentials could not be read — reconnect the account.";
+    } else {
+      const res = await sendTextMessage(
+        phone.phoneNumberId,
+        token,
+        conversation.contact.phoneE164,
+        body,
+      );
+      await recordGraphOutcome(waba.id, res);
+
+      if (res.ok) {
+        status = "sent";
+        providerMessageId = res.data.messages?.[0]?.id ?? null;
+      } else {
+        status = "failed";
+        error = isAuthError(res)
+          ? "WhatsApp authorisation failed — reconnect the account in WhatsApp → Setup."
+          : res.error;
+      }
     }
   } else {
     status = "failed";

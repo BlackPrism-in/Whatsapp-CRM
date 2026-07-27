@@ -1,8 +1,17 @@
+import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto";
 import { sendTextMessage } from "@/lib/whatsapp";
 import { pusher, workspaceChannel } from "@/lib/pusher";
 import type { MessageStatus } from "@/generated/prisma/enums";
+import {
+  handleAppStateSync,
+  handleHistory,
+  handleMessageEchoes,
+  type SmbAppStateSyncValue,
+  type HistoryValue,
+  type MessageEchoValue,
+} from "@/modules/whatsapp/coexistence";
 
 // Minimal shapes for the parts of the Meta webhook payload we consume.
 type MetaValue = {
@@ -24,8 +33,15 @@ type MetaValue = {
 };
 
 type MetaWebhookBody = {
-  entry?: { changes?: { field?: string; value?: MetaValue }[] }[];
+  entry?: { changes?: { field?: string; value?: unknown }[] }[];
 };
+
+/** Webhook fields that carry coexistence data (WhatsApp Business app sync). */
+const COEXISTENCE_FIELDS = new Set([
+  "smb_app_state_sync",
+  "history",
+  "smb_message_echoes",
+]);
 
 const STATUS_MAP: Record<string, MessageStatus> = {
   sent: "sent",
@@ -34,12 +50,30 @@ const STATUS_MAP: Record<string, MessageStatus> = {
   failed: "failed",
 };
 
-/** Process a full Meta webhook body: inbound messages + delivery statuses. */
+/**
+ * Process a full Meta webhook body.
+ *
+ * Handles two families of events:
+ *  - `messages` — live inbound messages + delivery statuses
+ *  - coexistence sync — `smb_app_state_sync`, `history`, `smb_message_echoes`
+ *
+ * ⚠️ Coexistence payloads are **one-shot** (Meta never resends them), so each is
+ * persisted to `InboundWebhookEvent` *before* processing. If processing throws,
+ * the raw payload survives and can be replayed instead of the client's history
+ * being lost permanently.
+ */
 export async function processWebhook(body: MetaWebhookBody): Promise<void> {
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      if (change.field !== "messages" || !change.value) continue;
-      const value = change.value;
+      if (!change.field || !change.value) continue;
+
+      if (COEXISTENCE_FIELDS.has(change.field)) {
+        await processCoexistenceChange(change.field, change.value);
+        continue;
+      }
+
+      if (change.field !== "messages") continue;
+      const value = change.value as MetaValue;
       const phoneNumberId = value.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
 
@@ -57,6 +91,42 @@ export async function processWebhook(body: MetaWebhookBody): Promise<void> {
         await handleStatus(status);
       }
     }
+  }
+}
+
+/** Persist-then-process a coexistence payload so it can never be lost. */
+async function processCoexistenceChange(field: string, value: unknown) {
+  // Durable record first. A deterministic key makes replays idempotent.
+  const externalId = `${field}:${crypto
+    .createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex")
+    .slice(0, 32)}`;
+
+  const event = await prisma.inboundWebhookEvent.upsert({
+    where: { source_externalId: { source: "whatsapp", externalId } },
+    create: { source: "whatsapp", externalId, payload: value as object },
+    update: {},
+  });
+
+  // Already handled — Meta retried, or we replayed. Nothing more to do.
+  if (event.processedAt) return;
+
+  try {
+    if (field === "smb_app_state_sync") {
+      await handleAppStateSync(value as SmbAppStateSyncValue);
+    } else if (field === "history") {
+      await handleHistory(value as HistoryValue);
+    } else if (field === "smb_message_echoes") {
+      await handleMessageEchoes(value as MessageEchoValue);
+    }
+    await prisma.inboundWebhookEvent.update({
+      where: { id: event.id },
+      data: { processedAt: new Date() },
+    });
+  } catch (e) {
+    // Leave processedAt null so this payload can be retried from storage.
+    console.error(`[whatsapp webhook] ${field} processing failed:`, e);
   }
 }
 

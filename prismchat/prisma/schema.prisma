@@ -819,6 +819,11 @@ model WhatsappBusinessAccount {
   // Coexistence contact/history import runs ONCE — track so we never re-trigger.
   historySyncedAt       DateTime?
   contactsSyncedAt      DateTime?
+  // Token health. Set when Meta rejects our credentials so the UI can prompt a
+  // reconnect instead of failing silently at send time.
+  lastError             String?
+  lastErrorAt           DateTime?
+  lastVerifiedAt        DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

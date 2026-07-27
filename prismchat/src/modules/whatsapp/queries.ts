@@ -14,6 +14,13 @@ export async function getWaba(workspaceId: string) {
       name: true,
       webhookVerifyToken: true,
       status: true,
+      // Onboarding mode + token health (migration `waba_token_health`).
+      // ⚠️ These columns must exist in the target database before this ships —
+      // deploy migrations first, or this page 500s.
+      onboardingMode: true,
+      isOnBizApp: true,
+      lastError: true,
+      lastVerifiedAt: true,
       phoneNumbers: {
         orderBy: { createdAt: "asc" },
         select: {
